@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+from contextlib import nullcontext
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 import torch
@@ -17,7 +19,6 @@ def _load_source_module(name: str, relative_path: str):
     spec = importlib.util.spec_from_file_location(name, source)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
     spec.loader.exec_module(module)
     return module
 
@@ -31,9 +32,12 @@ except ModuleNotFoundError as exc:
     register_cpu_ci = _load_source_module(
         "_graph_lora_ci_register", "python/sglang/test/ci/ci_register.py"
     ).register_cpu_ci
-    sgemm_lora_b_graph_fwd = _load_source_module(
+    _graph_lora_ops_module = _load_source_module(
         "_graph_lora_ops", "python/sglang/srt/lora/torch_ops/graph_lora_ops.py"
-    ).sgemm_lora_b_graph_fwd
+    )
+    sgemm_lora_b_graph_fwd = _graph_lora_ops_module.sgemm_lora_b_graph_fwd
+else:
+    _graph_lora_ops_module = None
 
 register_cpu_ci(est_time=2, suite="base-a-test-cpu")
 
@@ -265,7 +269,15 @@ def test_torch_compile_fullgraph_uses_compatible_fallback():
         )
 
     compiled = torch.compile(run_compiled, backend="eager", fullgraph=True)
-    with torch.inference_mode():
+    module_context = (
+        patch.dict(
+            sys.modules,
+            {sgemm_lora_b_graph_fwd.__module__: _graph_lora_ops_module},
+        )
+        if _graph_lora_ops_module is not None
+        else nullcontext()
+    )
+    with module_context, torch.inference_mode():
         actual = compiled(inputs, weights, weight_indices, base_output)
 
     torch.testing.assert_close(actual, expected)
