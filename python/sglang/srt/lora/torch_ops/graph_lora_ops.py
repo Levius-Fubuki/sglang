@@ -87,6 +87,14 @@ def sgemm_lora_b_graph_fwd(
             total_seq_len, total_output_dim, dtype=inputs.dtype, device=inputs.device
         )
 
+    # With fewer slots, CUDA Graph replay removes enough launch overhead that
+    # the beta-enabled GEMM can be slower than the existing mm + add sequence.
+    use_direct_accumulation = (
+        num_loras >= 4
+        and not torch.is_grad_enabled()
+        and not torch.compiler.is_compiling()
+    )
+
     num_slices = len(slice_offsets) - 1
     max_rank = input_dim // num_slices
 
@@ -113,8 +121,14 @@ def sgemm_lora_b_graph_fwd(
             w_slice = weights[
                 lora_idx, slice_start_output:slice_end_output
             ]  # (slice_dim, max_rank)
-            output[..., slice_start_output:slice_end_output].add_(
-                torch.mm(x_slice, w_slice.t())
-            )
+            output_slice = output[..., slice_start_output:slice_end_output]
+            if (
+                use_direct_accumulation
+                and output_slice.dtype == x_slice.dtype
+                and x_slice.dtype == w_slice.dtype
+            ):
+                torch.addmm(output_slice, x_slice, w_slice.t(), out=output_slice)
+            else:
+                output_slice.add_(torch.mm(x_slice, w_slice.t()))
 
     return output
