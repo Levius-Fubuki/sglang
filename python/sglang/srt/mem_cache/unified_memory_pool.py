@@ -596,6 +596,14 @@ class UnifiedMHATokenToKVPool(MHATokenToKVPool):
     def _create_buffers(self):
         self.k_buffer = self._k_views
         self.v_buffer = self._v_views
+        # HiCache's L2 kernels address these views as
+        # `k_data_ptrs[layer] + row * token_stride_size`. That holds here: each
+        # view is contiguous in the ROW space with row stride
+        # head_num * head_dim, which is exactly the `token_stride_size` the
+        # host pool computes and the `prod(shape[1:]) * itemsize` this fills in.
+        # The base builds them at the end of its `_create_buffers`, which this
+        # override replaces.
+        self._init_data_ptrs_and_strides()
 
     def _clear_buffers(self):
         # Lifetime owned by UnifiedKVPool; do not delete the views.

@@ -246,13 +246,33 @@ def handle_unified_memory_pool(server_args: Any) -> None:
             "not translate speculative verify indices to the unified "
             "pool's kernel-facing space yet."
         )
-    assert not (cfg.enable_hierarchical_cache or cfg.enable_lmcache), (
-        "--enable-unified-memory is not yet compatible with hierarchical / "
-        "host-tiered KV cache (--enable-hierarchical-cache / --enable-lmcache): "
-        "the unified-memory-pool init wires up no host pools, and its device mamba / "
-        "full-attention slots are VIRTUAL — the host-offload path does not "
-        "translate them to physical."
+    assert not cfg.enable_lmcache, (
+        "--enable-unified-memory is not yet compatible with --enable-lmcache: "
+        "the LMCache offload path indexes the device buffers with the ids it "
+        "is handed, and under the unified pool those are VIRTUAL."
     )
+    if cfg.enable_hierarchical_cache:
+        # The attention sub-pools are wired: `KVCache.host_transfer_translate`
+        # resolves the controller's virtual ids to kernel-facing ones just
+        # before each L2 kernel, and the host-transfer move gate freezes
+        # compaction for the lifetime of the operation.
+        #
+        # The recurrent-state sub-pool is not. `MambaPoolHost` addresses a slot
+        # as `ptr + index * item_size` (via transfer_kv_per_layer_mla), which
+        # assumes contiguous per-slot storage; the unified conv/SSM views are
+        # ENVELOPE-STRIDED, so every layer past the first would read the wrong
+        # bytes -- silently, since the addresses stay in range. Stride-aware
+        # host transfer is the follow-up that lifts this.
+        from sglang.srt.configs.hybrid_arch import mambaish_config
+
+        assert mambaish_config(model_config_of(server_args)) is None, (
+            "--enable-unified-memory with --enable-hierarchical-cache does not "
+            "support models with recurrent (Mamba / GDN / KDA / ShortConv) "
+            "state yet: the host pool addresses state slots as a contiguous "
+            "array, while the unified pool stores them envelope-strided. "
+            "Hybrid sliding-window and full-attention models (e.g. gpt-oss) "
+            "are supported."
+        )
     assert cfg.dcp_size == 1, (
         "--enable-unified-memory is not yet compatible with decode context "
         "parallelism (--dcp-size > 1): the pool has no DCP-aware masked write "
