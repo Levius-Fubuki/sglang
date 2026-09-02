@@ -134,7 +134,8 @@ def _forbid_addmm(*args, **kwargs):
     raise AssertionError("the direct-accumulation fast path must not run")
 
 
-def test_small_lora_pool_uses_existing_fallback(monkeypatch):
+@pytest.mark.parametrize("num_loras", (1, 2, 3))
+def test_small_lora_pool_uses_existing_fallback(monkeypatch, num_loras):
     (
         inputs,
         weights,
@@ -143,7 +144,7 @@ def test_small_lora_pool_uses_existing_fallback(monkeypatch):
         slice_offsets,
         _,
         base_output,
-    ) = _case(num_loras=2)
+    ) = _case(num_loras=num_loras)
     expected = _reference(inputs, weights, weight_indices, slice_offsets, base_output)
 
     monkeypatch.setattr(torch, "addmm", _forbid_addmm)

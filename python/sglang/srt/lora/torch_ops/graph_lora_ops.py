@@ -3,6 +3,8 @@ from typing import Optional
 import torch
 import torch.nn.functional as F
 
+_MIN_DIRECT_ACCUMULATION_LORAS = 4
+
 
 def sgemm_lora_a_embedding_graph_fwd(
     inputs: torch.Tensor,
@@ -90,7 +92,7 @@ def sgemm_lora_b_graph_fwd(
     # With fewer slots, CUDA Graph replay removes enough launch overhead that
     # the beta-enabled GEMM can be slower than the existing mm + add sequence.
     use_direct_accumulation = (
-        num_loras >= 4
+        num_loras >= _MIN_DIRECT_ACCUMULATION_LORAS
         and not torch.is_grad_enabled()
         and not torch.compiler.is_compiling()
     )
