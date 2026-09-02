@@ -89,12 +89,7 @@ def optimized(
         masked_inputs = torch.where(
             (weight_indices == adapter_idx).unsqueeze(1), inputs, 0
         )
-        torch.addmm(
-            output_slice,
-            masked_inputs,
-            weights[adapter_idx].t(),
-            out=output_slice,
-        )
+        output_slice.addmm_(masked_inputs, weights[adapter_idx].t())
 
 
 def _dtype(name: str) -> torch.dtype:
