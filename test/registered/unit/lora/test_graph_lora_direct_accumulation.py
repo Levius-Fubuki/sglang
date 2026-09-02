@@ -104,14 +104,14 @@ def test_inference_accumulates_directly_into_packed_output(monkeypatch):
     expected = _reference(inputs, weights, weight_indices, slice_offsets, base_output)
     padding_before = backing[:, (0, -1)].clone()
 
-    real_addmm = torch.addmm
-    calls: list[tuple[torch.Tensor, torch.Tensor | None]] = []
+    real_addmm_ = torch.Tensor.addmm_
+    calls: list[torch.Tensor] = []
 
-    def recording_addmm(input, mat1, mat2, *, beta=1, alpha=1, out=None):
-        calls.append((input, out))
-        return real_addmm(input, mat1, mat2, beta=beta, alpha=alpha, out=out)
+    def recording_addmm_(self, mat1, mat2, *, beta=1, alpha=1):
+        calls.append(self)
+        return real_addmm_(self, mat1, mat2, beta=beta, alpha=alpha)
 
-    monkeypatch.setattr(torch, "addmm", recording_addmm)
+    monkeypatch.setattr(torch.Tensor, "addmm_", recording_addmm_)
     with torch.inference_mode():
         actual = sgemm_lora_b_graph_fwd(
             inputs,
@@ -123,7 +123,11 @@ def test_inference_accumulates_directly_into_packed_output(monkeypatch):
         )
 
     assert len(calls) == weights.shape[0] * (len(slice_offsets) - 1)
-    assert all(destination is out for destination, out in calls)
+    assert all(
+        destination.untyped_storage().data_ptr()
+        == base_output.untyped_storage().data_ptr()
+        for destination in calls
+    )
     assert actual.data_ptr() == base_output.data_ptr()
     assert not actual.is_contiguous()
     torch.testing.assert_close(actual, expected)

@@ -129,7 +129,7 @@ def sgemm_lora_b_graph_fwd(
                 and output_slice.dtype == x_slice.dtype
                 and x_slice.dtype == w_slice.dtype
             ):
-                torch.addmm(output_slice, x_slice, w_slice.t(), out=output_slice)
+                output_slice.addmm_(x_slice, w_slice.t())
             else:
                 output_slice.add_(torch.mm(x_slice, w_slice.t()))
 
