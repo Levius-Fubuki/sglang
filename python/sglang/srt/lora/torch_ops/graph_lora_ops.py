@@ -94,7 +94,6 @@ def sgemm_lora_b_graph_fwd(
     use_direct_accumulation = (
         num_loras >= _MIN_DIRECT_ACCUMULATION_LORAS
         and not torch.is_grad_enabled()
-        and not torch.compiler.is_compiling()
     )
 
     num_slices = len(slice_offsets) - 1

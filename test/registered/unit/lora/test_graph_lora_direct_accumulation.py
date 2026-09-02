@@ -251,7 +251,7 @@ def test_low_precision_whole_output_with_empty_adapter_group(dtype):
     torch.testing.assert_close(actual, expected, rtol=3e-2, atol=3e-2)
 
 
-def test_torch_compile_fullgraph_uses_compatible_fallback():
+def test_torch_compile_fullgraph_uses_direct_accumulation():
     (
         inputs,
         weights,
@@ -273,7 +273,15 @@ def test_torch_compile_fullgraph_uses_compatible_fallback():
             base_output,
         )
 
-    compiled = torch.compile(run_compiled, backend="eager", fullgraph=True)
+    captured_graphs = []
+
+    def recording_backend(graph_module, _example_inputs):
+        captured_graphs.append(graph_module)
+        return graph_module.forward
+
+    compiled = torch.compile(
+        run_compiled, backend=recording_backend, fullgraph=True
+    )
     module_context = (
         patch.dict(
             sys.modules,
@@ -286,6 +294,8 @@ def test_torch_compile_fullgraph_uses_compatible_fallback():
         actual = compiled(inputs, weights, weight_indices, base_output)
 
     torch.testing.assert_close(actual, expected)
+    assert len(captured_graphs) == 1
+    assert "addmm_" in captured_graphs[0].code
 
 
 if __name__ == "__main__":
